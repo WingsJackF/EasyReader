@@ -30,11 +30,15 @@ cd EasyReader
 pip install -r requirements.txt
 ```
 
-复制环境变量模板并填写密钥：
+复制环境变量模板并填写密钥（放在**仓库根目录** `EasyReader/.env`）：
 
 ```bash
 cp .env.example .env
 ```
+
+> **注意**：主程序在 `transAgent` 目录下运行时，`python-dotenv` 默认加载**当前工作目录**下的 `.env`。若你只把 `.env` 放在仓库根目录，进入 `transAgent` 后可能读不到变量，可任选其一：  
+> - 再复制一份到 `transAgent/`：`cp .env transAgent/.env`  
+> - 或在运行前手动 `export` 所需变量  
 
 ---
 
@@ -56,28 +60,97 @@ cp .env.example .env
 
 ---
 
-## 使用（主流程）
+## 如何运行主程序（`transAgent/agent.py`）
 
-在仓库根目录进入 **`transAgent`** 再运行（模块导入依赖当前工作目录）：
+### 1. 进入目录
+
+主流程脚本使用相对导入（`from config import …`），需要**在 `transAgent` 目录下**执行：
+
+```bash
+cd /path/to/EasyReader/transAgent
+```
+
+（将 `/path/to/EasyReader` 换成你本机仓库路径。）
+
+### 2. 命令格式
+
+```text
+python agent.py <PDF路径> [输出相关参数] [可选开关]
+```
+
+查看**全部参数说明**（与代码里 `argparse` 一致）：
+
+```bash
+python agent.py -h
+```
+
+### 3. 参数说明
+
+#### 必选
+
+| 参数 | 含义 |
+|------|------|
+| `pdf_path` | 输入 PDF 的路径（相对路径相对于**当前目录** `transAgent/`，也可用绝对路径） |
+
+#### 可选位置参数
+
+| 参数 | 含义 |
+|------|------|
+| `output_md` | 可选。指定 **Markdown 文件路径**（`.md`）或**任务目录**（非 `.md` 结尾则视为目录，将在其下生成 `<PDF主文件名>.md`）。不写则使用默认输出规则（见下表与 `-o` 组合）。 |
+
+#### 可选命名参数
+
+| 参数 | 简写 | 含义 |
+|------|------|------|
+| `--output-dir` | `-o` | 任务输出**根目录**。其下会生成 `<PDF主名>.md` 与 `figures/`（若开启插图）。可与第二个位置参数组合：`-o ../runs/exp1` 且第二个参数为 `笔记.md` 时，得到 `../runs/exp1/笔记.md`。 |
+| `--figures` | — | 开启 **Paddle 版面插图**裁剪并嵌入（需 `.env` 中配置 `PADDLE_OCR_TOKEN`）。与上传/OCR/翻译**并行**。 |
+| `--dpi` | — | **OCR 用** PDF 转图 DPI；不设则用环境变量 `PDF_DPI`，默认 **200**。 |
+| `--figure-dpi` | — | **插图裁剪用** PDF 渲染 DPI；不设则用 `FIGURE_EXTRACT_DPI`，默认 **300**。 |
+
+#### 默认输出规则（不写 `output_md` 且不写 `-o`）
+
+生成目录：**`transAgent/output/<PDF主文件名>/`**，Markdown 为 **`<PDF主文件名>.md`**。
+
+### 4. 常用示例
 
 ```bash
 cd transAgent
 
-# 默认：输出到 ./output/<pdf主名>/<pdf主名>.md
+# 最简：输出到 ./output/论文名/论文名.md
 python agent.py ../pdf/论文.pdf
 
-# 指定任务输出目录
+# 指定整个任务输出目录（其下为 论文名.md + figures/）
 python agent.py ../pdf/论文.pdf -o ../runs/exp1
 
-# 指定输出 Markdown 文件名（在 -o 目录下）
+# 指定目录 + 自定义 md 文件名
 python agent.py ../pdf/论文.pdf -o ../runs/exp1 笔记.md
 
-# 开启插图提取（需 PADDLE_OCR_TOKEN）
+# 开启插图（需 PADDLE_OCR_TOKEN）
 python agent.py ../pdf/论文.pdf --figures
 
-# OCR 与插图分辨率
-python agent.py ../pdf/论文.pdf --dpi 200 --figures --figure-dpi 300
+# 提高 OCR 清晰度 + 提高插图分辨率
+python agent.py ../pdf/论文.pdf --dpi 250 --figures --figure-dpi 400
+
+# 组合：自定义输出目录 + 插图
+python agent.py ../pdf/论文.pdf -o ../output/myjob --figures --figure-dpi 300
 ```
+
+---
+
+## 预览 Markdown 效果
+
+生成的是标准 `.md` 文件，内嵌图片为**相对路径**（如 `figures/xxx.png`），用编辑器预览时请**打开任务目录里的 `.md`**，这样图片才能加载。
+
+在 **VS Code**、**Cursor** 等基于 VS Code 的 IDE 中，可以：
+
+1. 安装扩展 **Markdown All in One**（增强目录、快捷键等，可选但与自带预览配合良好）。  
+2. 打开 `.md` 文件后，使用 **Markdown 预览**：  
+   - **macOS**：`Command + Shift + V` — 打开侧边预览（与内置「Markdown: Open Preview」一致，若快捷键被占用可在命令面板搜索 `Markdown: Open Preview` 查看或修改）。  
+   - **Windows / Linux**：一般为 `Ctrl + Shift + V`（以 IDE 键盘快捷方式设置为准）。  
+
+也可使用命令面板（`Command + Shift + P` / `Ctrl + Shift + P`）输入 **Open Preview** 选择预览方式。
+
+---
 
 ### 输出结构示例
 
