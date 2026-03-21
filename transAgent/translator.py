@@ -14,7 +14,8 @@ _TRANSLATOR_SYSTEM = (
     "3. 表格：必须用 Markdown 表格语法（| 列1 | 列2 | 和 --- 分隔行），不要用 LaTeX 的 \\begin{tabular} 或 \\begin{table}。\n"
     "4. 章节用 ## 或 ###，不要用 \\section、\\subsection。\n"
     "5. 保持段落结构和逻辑清晰。\n"
-    "6. 若原文有 Markdown 图片行 ![说明](image.png) 等占位链接，请保留整行图片语法：可将方括号内说明译成中文，但必须保留 [](image.png) 形式，不要将图片改成纯文字「**图 N.** …」以免丢失插图位置。"
+    "6. **插图与图注**：LaTeX `\\begin{figure}`…`\\caption{…}`…`\\includegraphics{image.png}` 或已有 `![…](image.png)` 时，须输出两行结构：① 单独一行 `![](image.png)`（alt 留空或仅写「图」等极短词，**不要把整段图注塞进方括号**）；② **空一行后**接图注的中文译文（可用 *斜体一段* 或 **图注：** 开头），即图注在图片**下方**。必须保留 `image.png` 路径，不得删图或改成纯文字以免丢失插图位置。\n"
+    "7. **表题不可丢**：LaTeX 中 \\begin{table}…\\caption{英文表题}… 在转为 Markdown 表格时，必须把 \\caption 全文译为中文，写在**该表格正上方单独一行**（可用 **表题：** 开头或加粗一行），再空一行后接 | 表头 |；禁止只输出表格网格而省略 caption。"
 )
 
 

@@ -12,6 +12,7 @@
 | **任务输出目录** | 每次运行默认输出到 `output/<PDF主文件名>/`，Markdown 与 `figures/` 同目录，便于打包与预览 |
 | **插图（可选）** | `--figures` 时调用 **PaddleOCR AI Studio** 版面接口，按页裁剪图；与上传/OCR/翻译在**后台并行** |
 | **占位图替换** | 译文中 `![...](image.png)` 按**出现顺序**依次替换为本页裁剪图；未匹配完的图放在「本页插图」 |
+| **中间文件** | 默认在任务目录 `artifacts/page_XXXX/` 保存每页 `render.png`、`ocr.txt`、翻译前后文本等，便于调试与复跑 |
 
 ---
 
@@ -106,6 +107,7 @@ python agent.py -h
 | `--figures` | — | 开启 **Paddle 版面插图**裁剪并嵌入（需 `.env` 中配置 `PADDLE_OCR_TOKEN`）。与上传/OCR/翻译**并行**。 |
 | `--dpi` | — | **OCR 用** PDF 转图 DPI；不设则用环境变量 `PDF_DPI`，默认 **200**。 |
 | `--figure-dpi` | — | **插图裁剪用** PDF 渲染 DPI；不设则用 `FIGURE_EXTRACT_DPI`，默认 **300**。 |
+| `--no-artifacts` | — | **不写入** `artifacts/` 中间文件（长文档可明显省磁盘）。 |
 
 #### 默认输出规则（不写 `output_md` 且不写 `-o`）
 
@@ -157,13 +159,24 @@ python agent.py ../pdf/论文.pdf -o ../output/myjob --figures --figure-dpi 300
 ```
 output/
 └── 论文名/
-    ├── 论文名.md      # 中文译文
-    └── figures/       # 裁剪插图（--figures 时）
-        ├── p0001_Figure_1.png
+    ├── 论文名.md           # 中文译文（总稿）
+    ├── figures/            # 裁剪插图（--figures 时）
+    │   ├── p0001_Figure_1.png
+    │   └── ...
+    └── artifacts/          # 每页中间文件（默认开启；--no-artifacts 时不生成）
+        ├── README.txt      # 各文件名说明
+        ├── page_0001/
+        │   ├── render.png           # 本页渲染图（与上传 OSS 一致）
+        │   ├── oss_url.txt          # 该图 OSS URL
+        │   ├── ocr.txt              # 千问 OCR 原始结果
+        │   ├── translation_raw.md   # DeepSeek 翻译原始输出
+        │   └── translation_merged.md # 写入总稿前的本页正文（含本页插图块、占位图已替换）
+        ├── page_0002/
+        │   └── ...
         └── ...
 ```
 
-文内图片使用相对路径（如 `figures/p0003_Figure_2.png`），与 `.md` 同目录即可正常预览。
+文内图片使用相对路径（如 `figures/p0003_Figure_2.png`），与 `.md` 同目录即可正常预览。`artifacts/` 内文件仅供查阅与排错，不参与总稿引用。
 
 ---
 

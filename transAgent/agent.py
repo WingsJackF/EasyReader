@@ -7,6 +7,7 @@
   默认: ./output/<pdf文件名>/
   - <pdf文件名>.md   主 Markdown
   - figures/         插图（启用 --figures 时）
+  - artifacts/       每页中间文件：render.png、oss_url.txt、ocr.txt、translation_raw.md、translation_merged.md
 """
 import argparse
 import asyncio
@@ -78,6 +79,57 @@ def _fix_latex_for_markdown(text: str) -> str:
     return text
 
 
+def _artifacts_page_dir(artifacts_root: Path, page_num: int) -> Path:
+    return artifacts_root / f"page_{page_num:04d}"
+
+
+def _write_page_artifacts(
+    task_dir: Path,
+    *,
+    pages: list[tuple[int, bytes]],
+    upload_results: list[tuple[int, str]],
+    ocr_results: list[tuple[int, str]],
+    translate_results: list[tuple[int, str]],
+) -> Path:
+    """
+    在 task_dir/artifacts/page_XXXX/ 下写入每页：渲染图、OSS URL、OCR 文本、翻译原文。
+    返回 artifacts 根路径。
+    """
+    artifacts_root = task_dir / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+
+    for page_num, img_bytes in pages:
+        pdir = _artifacts_page_dir(artifacts_root, page_num)
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "render.png").write_bytes(img_bytes)
+
+    for page_num, url in upload_results:
+        pdir = _artifacts_page_dir(artifacts_root, page_num)
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "oss_url.txt").write_text(f"{url}\n", encoding="utf-8")
+
+    for page_num, latex in ocr_results:
+        pdir = _artifacts_page_dir(artifacts_root, page_num)
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "ocr.txt").write_text(latex, encoding="utf-8")
+
+    for page_num, chinese_md in translate_results:
+        pdir = _artifacts_page_dir(artifacts_root, page_num)
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "translation_raw.md").write_text(chinese_md, encoding="utf-8")
+
+    (artifacts_root / "README.txt").write_text(
+        "每页子目录 page_XXXX/ 说明：\n"
+        "- render.png            本页 OCR 用渲染图（与上传 OSS 一致）\n"
+        "- oss_url.txt           该页图片的 OSS 公网 URL\n"
+        "- ocr.txt               千问 OCR 返回的 LaTeX/文本\n"
+        "- translation_raw.md    DeepSeek 翻译原始输出\n"
+        "- translation_merged.md 写入总稿前的本页正文（插图占位已替换、含「本页插图」块；无「## 第 N 页」标题）\n",
+        encoding="utf-8",
+    )
+    return artifacts_root
+
+
 def resolve_task_output_dir(
     pdf_path: Path,
     output_md_path: str | Path | None,
@@ -137,6 +189,7 @@ def process_paper(
     output_dir: str | Path | None = None,
     extract_figures: bool = False,
     figure_dpi: int | None = None,
+    save_artifacts: bool = True,
 ) -> str:
     """
     处理一篇 PDF 文献，输出中文 Markdown。
@@ -149,6 +202,7 @@ def process_paper(
         extract_figures: 是否调用 Paddle 版面 API 按 Figure N 裁剪插图并嵌入 Markdown
             （与上传/OCR/翻译并行，写 md 前会等待插图线程结束）
         figure_dpi: 插图裁剪用渲染 DPI，默认读取配置 FIGURE_EXTRACT_DPI（建议 300）
+        save_artifacts: 是否在 task_dir/artifacts/ 按页保存渲染图、OSS URL、OCR、翻译中间结果
 
     Returns:
         汇总后的中文 Markdown 内容
@@ -295,6 +349,19 @@ def process_paper(
         ocr_results = asyncio.run(ocr_all())
         print(f"[4/4] 翻译中...")
         translate_results = asyncio.run(translate_all())
+
+        if save_artifacts:
+            _write_page_artifacts(
+                task_dir,
+                pages=pages,
+                upload_results=list(upload_results),
+                ocr_results=list(ocr_results),
+                translate_results=list(translate_results),
+            )
+            print(
+                f"      → 已写入中间文件: {task_dir / 'artifacts'}/page_XXXX/"
+                f"（oss_url.txt, ocr.txt, translation_raw.md 等）"
+            )
     finally:
         if figures_future is not None and fig_executor is not None:
             print("[插图·并行] 等待后台插图任务完成…")
@@ -310,6 +377,7 @@ def process_paper(
     # Step 5: 按页码顺序写入（try 若抛错则不会执行到这里）
     sorted_results = sorted(translate_results, key=lambda x: x[0])
     translated_parts: list[str] = []
+    artifacts_root = task_dir / "artifacts"
     for page_num, chinese_md in sorted_results:
         body = _fix_latex_for_markdown(_strip_markdown_code_block(chinese_md))
         fig_lines = figure_md_by_page.get(page_num)
@@ -320,12 +388,19 @@ def process_paper(
             fig_block = "### 本页插图\n\n" + "\n\n".join(fig_lines) + "\n\n"
         else:
             fig_block = ""
+        if save_artifacts:
+            pdir = _artifacts_page_dir(artifacts_root, page_num)
+            pdir.mkdir(parents=True, exist_ok=True)
+            merged = f"{fig_block}{body}".rstrip() + "\n"
+            (pdir / "translation_merged.md").write_text(merged, encoding="utf-8")
         translated_parts.append(f"## 第 {page_num} 页\n\n{fig_block}{body}\n")
     full_markdown = f"# {paper_name}\n\n" + "\n---\n\n".join(translated_parts)
 
     out_path.write_text(full_markdown, encoding="utf-8")
     print(f"      → 任务目录: {task_dir}")
     print(f"      → 已写入 {out_path}")
+    if save_artifacts:
+        print(f"      → 每页中间文件: {task_dir / 'artifacts'}/page_XXXX/")
 
     return full_markdown
 
@@ -364,6 +439,11 @@ if __name__ == "__main__":
         default=None,
         help=f"OCR 用 PDF 转图 DPI（默认 {PDF_DPI}）",
     )
+    parser.add_argument(
+        "--no-artifacts",
+        action="store_true",
+        help="不写入 task_dir/artifacts/ 中间文件（省磁盘）",
+    )
     args = parser.parse_args()
     process_paper(
         args.pdf_path,
@@ -372,5 +452,6 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         extract_figures=args.figures,
         figure_dpi=args.figure_dpi,
+        save_artifacts=not args.no_artifacts,
     )
     print("完成")
