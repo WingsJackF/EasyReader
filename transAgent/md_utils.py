@@ -28,6 +28,57 @@ def strip_markdown_code_blocks(text: str) -> str:
     return text.strip()
 
 
+def _clean_latex_inline_text(text: str) -> str:
+    return (
+        text.replace(r"\textdagger", "†")
+        .replace(r"\dagger", "†")
+        .replace(r"\*", "*")
+    )
+
+
+def _clean_inline_math_text(text: str) -> str:
+    return text.strip().replace(r"R_{f}", "R_f")
+
+
+def fix_latex_for_markdown(text: str) -> str:
+    """Convert common LaTeX text commands to Markdown-renderable text."""
+    text = re.sub(
+        r"\\textsuperscript\{([^{}]*)\}",
+        lambda m: f"<sup>{_clean_latex_inline_text(m.group(1))}</sup>",
+        text,
+    )
+    text = re.sub(
+        r"\$\s*\^\{([^{}]*)\}\s*\$",
+        lambda m: f"<sup>{_clean_latex_inline_text(m.group(1))}</sup>",
+        text,
+    )
+    text = re.sub(
+        r"(?<![A-Za-z0-9_\\}\)])\^\{([0-9,\-\s]+)\}",
+        lambda m: f"<sup>{m.group(1).strip()}</sup>",
+        text,
+    )
+    text = re.sub(
+        r"(?<!\$)\$\s*([^$\n]*?\S)\s*\$(?!\$)",
+        lambda m: f"${_clean_inline_math_text(m.group(1))}$",
+        text,
+    )
+    text = re.sub(
+        r"\\begin\{equation\}\s*(.*?)\s*\\end\{equation\}",
+        r"$$\1$$",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(r"\\subsection\{([^}]*)\}", r"### \1", text)
+    text = re.sub(r"\\subsubsection\{([^}]*)\}", r"#### \1", text)
+    text = re.sub(
+        r"\\begin\{center\}\s*(.*?)\s*\\end\{center\}",
+        r"<p align=\"center\">\1</p>",
+        text,
+        flags=re.DOTALL,
+    )
+    return text
+
+
 # OCR/翻译里的假图链：括号内路径以 image.png 结尾（大小写不敏感），如 (image.png)、(./image.png)
 _PLACEHOLDER_IMAGE = re.compile(
     r"!\[([^\]]*)\]\(([^)]*?)image\.png\)",
@@ -96,21 +147,7 @@ def fix_markdown_file(md_path: str | Path) -> None:
     pattern = r"(## 第 \d+ 页)\n\n```(?:markdown|md)?\n(.*?)\n```"
     fixed = re.sub(pattern, r"\1\n\n\2", content, flags=re.DOTALL)
 
-    # 将 LaTeX 转为 Markdown 可渲染格式
-    fixed = re.sub(
-        r"\\begin\{equation\}\s*(.*?)\s*\\end\{equation\}",
-        r"$$\1$$",
-        fixed,
-        flags=re.DOTALL,
-    )
-    fixed = re.sub(r"\\subsection\{([^}]*)\}", r"### \1", fixed)
-    fixed = re.sub(r"\\subsubsection\{([^}]*)\}", r"#### \1", fixed)
-    fixed = re.sub(
-        r"\\begin\{center\}\s*(.*?)\s*\\end\{center\}",
-        r"<p align=\"center\">\1</p>",
-        fixed,
-        flags=re.DOTALL,
-    )
+    fixed = fix_latex_for_markdown(fixed)
 
     md_path.write_text(fixed, encoding="utf-8")
     print(f"已修复: {md_path}")

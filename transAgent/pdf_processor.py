@@ -11,6 +11,7 @@ def pdf_to_images(
     pdf_path: str | Path,
     output_dir: str | Path | None = None,
     dpi: int = 200,
+    page_numbers: set[int] | None = None,
 ) -> Generator[tuple[int, bytes], None, None]:
     """
     将 PDF 每一页转换为 PNG 图片字节流。
@@ -19,6 +20,7 @@ def pdf_to_images(
         pdf_path: PDF 文件路径
         output_dir: 可选，若指定则同时保存到本地目录
         dpi: 渲染分辨率，越高越清晰，默认 200（平衡清晰度与文件大小）
+        page_numbers: 可选，仅渲染这些页码（1-based）
 
     Yields:
         (页码, 图片字节) 元组，页码从 1 开始
@@ -34,16 +36,19 @@ def pdf_to_images(
     doc = fitz.open(pdf_path)
     try:
         for page_num in range(len(doc)):
+            one_based_page = page_num + 1
+            if page_numbers is not None and one_based_page not in page_numbers:
+                continue
             page = doc[page_num]
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             img_bytes = pix.tobytes("png")
 
             if output_dir:
-                out_path = Path(output_dir) / f"page_{page_num + 1:04d}.png"
+                out_path = Path(output_dir) / f"page_{one_based_page:04d}.png"
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_bytes(img_bytes)
 
-            yield page_num + 1, img_bytes
+            yield one_based_page, img_bytes
     finally:
         doc.close()
 

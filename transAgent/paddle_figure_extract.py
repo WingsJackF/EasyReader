@@ -81,7 +81,7 @@ def poll_until_done(
 ) -> str:
     headers = {"Authorization": f"bearer {token}"}
     while True:
-        r = requests.get(f"{JOB_URL}/{job_id}", headers=headers, timeout=60)
+        r = requests.get(f"{JOB_URL}/{job_id}", headers=headers, timeout=120)
         r.raise_for_status()
         data = r.json()["data"]
         state = data["state"]

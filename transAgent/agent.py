@@ -36,6 +36,22 @@ from ocr_service import create_async_ocr_client, image_to_latex_async
 from translator import create_async_translator_client, latex_to_chinese_markdown_async
 
 
+def _parse_page_range(page_range: str, total_pages: int) -> list[int]:
+    """解析形如 4-9 的页段（闭区间）。"""
+    m = re.fullmatch(r"\s*(\d+)\s*-\s*(\d+)\s*", page_range)
+    if not m:
+        raise ValueError("page_range 格式错误，应为 start-end，例如 4-9")
+    start = int(m.group(1))
+    end = int(m.group(2))
+    if start < 1 or end < 1:
+        raise ValueError("page_range 页码必须 >= 1")
+    if start > end:
+        raise ValueError("page_range 起始页不能大于结束页")
+    if end > total_pages:
+        raise ValueError(f"page_range 超出 PDF 总页数（总页数 {total_pages}）")
+    return list(range(start, end + 1))
+
+
 def _strip_markdown_code_block(text: str) -> str:
     """去除翻译结果中可能出现的 ```markdown 代码块包裹"""
     text = text.strip()
@@ -50,8 +66,21 @@ def _strip_markdown_code_block(text: str) -> str:
     return text.strip()
 
 
+def _clean_latex_inline_text(text: str) -> str:
+    return (
+        text.replace(r"\textdagger", "†")
+        .replace(r"\dagger", "†")
+        .replace(r"\*", "*")
+    )
+
+
 def _fix_latex_for_markdown(text: str) -> str:
     """将 LaTeX 转为 Markdown 可渲染格式"""
+    text = re.sub(
+        r"\\textsuperscript\{([^{}]*)\}",
+        lambda m: f"<sup>{_clean_latex_inline_text(m.group(1))}</sup>",
+        text,
+    )
     # \begin{equation}...\end{equation} → $$...$$
     text = re.sub(
         r"\\begin\{equation\}\s*(.*?)\s*\\end\{equation\}",
@@ -190,6 +219,7 @@ def process_paper(
     extract_figures: bool = False,
     figure_dpi: int | None = None,
     save_artifacts: bool = True,
+    page_range: str | None = None,
 ) -> str:
     """
     处理一篇 PDF 文献，输出中文 Markdown。
@@ -203,6 +233,7 @@ def process_paper(
             （与上传/OCR/翻译并行，写 md 前会等待插图线程结束）
         figure_dpi: 插图裁剪用渲染 DPI，默认读取配置 FIGURE_EXTRACT_DPI（建议 300）
         save_artifacts: 是否在 task_dir/artifacts/ 按页保存渲染图、OSS URL、OCR、翻译中间结果
+        page_range: 可选，连续页段（闭区间），格式如 "4-9"
 
     Returns:
         汇总后的中文 Markdown 内容
@@ -228,13 +259,29 @@ def process_paper(
 
     paper_name = pdf_path.stem
     total_pages = get_page_count(pdf_path)
-    print(f"[1/4] PDF 转图（共 {total_pages} 页，OCR DPI={dpi}）...")
+    if page_range:
+        selected_pages = _parse_page_range(page_range, total_pages)
+    else:
+        selected_pages = list(range(1, total_pages + 1))
+    selected_page_set = set(selected_pages)
+    selected_total = len(selected_pages)
+
+    if page_range:
+        print(
+            f"[1/4] PDF 转图（总 {total_pages} 页，处理页段 {page_range}，共 {selected_total} 页，OCR DPI={dpi}）..."
+        )
+    else:
+        print(f"[1/4] PDF 转图（共 {selected_total} 页，OCR DPI={dpi}）...")
 
     # Step 1: PDF 转图片
     pages: list[tuple[int, bytes]] = []
-    for page_num, img_bytes in pdf_to_images(pdf_path, dpi=dpi):
+    for page_num, img_bytes in pdf_to_images(
+        pdf_path,
+        dpi=dpi,
+        page_numbers=selected_page_set,
+    ):
         pages.append((page_num, img_bytes))
-        print(f"      [转换] {len(pages)}/{total_pages}")
+        print(f"      [转换] {len(pages)}/{selected_total}")
 
     # 插图仅依赖 PDF + Paddle，与后续上传/OCR/翻译并行（单独线程，避免阻塞 asyncio 主流程）
     figures_future: Future | None = None
@@ -250,9 +297,9 @@ def process_paper(
             out_map: dict[int, list[str]] = {}
             print(
                 f"[插图·并行] Paddle 版面与裁剪（后台线程，与上传/OCR/翻译同时进行），"
-                f"共 {total_pages} 页，DPI={fdpi}…"
+                f"共 {selected_total} 页，DPI={fdpi}…"
             )
-            for page_num in range(1, total_pages + 1):
+            for idx, page_num in enumerate(selected_pages, start=1):
                 try:
                     crops = extract_figures_from_pdf_page(
                         pdf_path,
@@ -276,7 +323,7 @@ def process_paper(
                     lines.append(f"![{alt}](figures/{fname})")
                 if lines:
                     out_map[page_num] = lines
-                print(f"      [插图] 第 {page_num}/{total_pages} 页 → {len(crops)} 张")
+                print(f"      [插图] 第 {idx}/{selected_total} 页（PDF第{page_num}页） → {len(crops)} 张")
             return out_map
 
         fig_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="figures")
@@ -300,7 +347,7 @@ def process_paper(
             )
             async with lock:
                 upload_count[0] += 1
-                print(f"      [上传] {upload_count[0]}/{total_pages}")
+                print(f"      [上传] {upload_count[0]}/{selected_total}")
             return result
 
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -318,7 +365,7 @@ def process_paper(
         async with sem_ocr:
             result = page_num, await image_to_latex_async(ocr_client, url)
             ocr_count[0] += 1
-            print(f"      [OCR] {ocr_count[0]}/{total_pages}")
+            print(f"      [OCR] {ocr_count[0]}/{selected_total}")
             return result
 
     async def ocr_all():
@@ -335,7 +382,7 @@ def process_paper(
                 translator_client, latex
             )
             translate_count[0] += 1
-            print(f"      [翻译] {translate_count[0]}/{total_pages}")
+            print(f"      [翻译] {translate_count[0]}/{selected_total}")
             return result
 
     async def translate_all():
@@ -444,6 +491,12 @@ if __name__ == "__main__":
         action="store_true",
         help="不写入 task_dir/artifacts/ 中间文件（省磁盘）",
     )
+    parser.add_argument(
+        "--page-range",
+        type=str,
+        default=None,
+        help='仅处理连续页段（闭区间），格式如 "4-9"',
+    )
     args = parser.parse_args()
     process_paper(
         args.pdf_path,
@@ -453,5 +506,6 @@ if __name__ == "__main__":
         extract_figures=args.figures,
         figure_dpi=args.figure_dpi,
         save_artifacts=not args.no_artifacts,
+        page_range=args.page_range,
     )
     print("完成")

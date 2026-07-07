@@ -27,7 +27,7 @@ CONCURRENCY_LIMIT = int(os.getenv("CONCURRENCY_LIMIT", "5"))
 # Paddle 版面 → 插图裁剪（transAgent 可选，需 PADDLE_OCR_TOKEN）
 PADDLE_OCR_TOKEN = os.getenv("PADDLE_OCR_TOKEN", "").strip()
 FIGURE_EXTRACT_DPI = int(os.getenv("FIGURE_EXTRACT_DPI", "300"))
-PADDLE_LAYOUT_MODEL = os.getenv("PADDLE_LAYOUT_MODEL", "PaddleOCR-VL-1.5")
+PADDLE_LAYOUT_MODEL = os.getenv("PADDLE_LAYOUT_MODEL", "PaddleOCR-VL-1.6")
 PADDLE_LAYOUT_USE_CHART = os.getenv("PADDLE_LAYOUT_USE_CHART", "true").lower() in (
     "1",
     "true",

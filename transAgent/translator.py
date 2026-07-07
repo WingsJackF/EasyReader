@@ -5,6 +5,8 @@
 import os
 from openai import AsyncOpenAI, OpenAI
 
+DEEPSEEK_MAX_TOKENS = 32768
+
 # DeepSeek 翻译用的 system prompt（同步/异步共用）
 _TRANSLATOR_SYSTEM = (
     "你是一位专业的学术文献翻译助手。请将用户提供的 LaTeX 格式的学术内容翻译成中文，并以 Markdown 格式输出。\n\n"
@@ -30,7 +32,7 @@ def create_translator_client() -> OpenAI:
 def latex_to_chinese_markdown(
     client: OpenAI,
     latex_content: str,
-    model: str = "deepseek-chat",
+    model: str = "deepseek-v4-flash",
 ) -> str:
     """
     将 LaTeX 格式的学术内容翻译为中文 Markdown。
@@ -48,6 +50,7 @@ def latex_to_chinese_markdown(
 
     completion = client.chat.completions.create(
         model=model,
+        max_tokens=DEEPSEEK_MAX_TOKENS,
         messages=[
             {"role": "system", "content": _TRANSLATOR_SYSTEM},
             {
@@ -78,6 +81,7 @@ async def latex_to_chinese_markdown_async(
 
     completion = await client.chat.completions.create(
         model=model,
+        max_tokens=DEEPSEEK_MAX_TOKENS,
         messages=[
             {"role": "system", "content": _TRANSLATOR_SYSTEM},
             {
