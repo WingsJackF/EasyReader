@@ -28,6 +28,8 @@
 
 ```bash
 cd EasyReader
+conda create -n easyreader python=3.12 -y
+conda activate easyreader
 pip install -r requirements.txt
 ```
 
